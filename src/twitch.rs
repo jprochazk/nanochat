@@ -1,16 +1,17 @@
 pub mod conn;
+mod read;
+mod write;
 
 use std::fmt::{Display, Write};
 use std::future::Future;
 use std::io;
 use std::time::Duration;
 
-use futures_util::stream::Fuse;
 use futures_util::StreamExt;
 use tokio_stream::wrappers::LinesStream;
 
 use rand::{thread_rng, Rng};
-use tokio::io::{AsyncWriteExt, BufReader, ReadHalf, WriteHalf};
+use tokio::io::{AsyncWriteExt, BufReader};
 use tokio_rustls::rustls::client::InvalidDnsNameError;
 use tokio_rustls::rustls::ServerName;
 
@@ -20,6 +21,8 @@ use crate::util::Timeout;
 
 use self::conn::tls::{TlsConfig, TlsConfigError};
 use self::conn::OpenStreamError;
+use self::read::{ReadError, ReadStream};
+use self::write::WriteStream;
 
 pub struct ChatConfig {
   pub nick: String,
@@ -47,10 +50,10 @@ impl ChatConfig {
 }
 
 pub struct Client {
-  reader: Reader,
-  writer: Writer,
+  reader: ReadStream,
+  writer: WriteStream,
 
-  out: String,
+  scratch: String,
   tls: TlsConfig,
   config: ChatConfig,
 }
@@ -65,7 +68,7 @@ impl Client {
     let mut chat = Client {
       reader,
       writer,
-      out: String::with_capacity(1024),
+      scratch: String::with_capacity(1024),
       tls,
       config,
     };
@@ -106,34 +109,41 @@ impl Client {
     Err(ConnectionError::Reconnect)
   }
 
-  pub fn reader(&mut self) -> &mut Reader {
-    &mut self.reader
-  }
-
-  pub fn writer(&mut self) -> &mut Writer {
-    &mut self.writer
-  }
-
   async fn handshake(&mut self) -> Result<(), ConnectionError> {
     tracing::debug!("performing handshake");
 
     const CAP: &str = "twitch.tv/commands twitch.tv/tags";
     tracing::debug!("CAP REQ {CAP}; NICK {}; PASS ***", self.config.nick);
 
-    write!(&mut self.out, "CAP REQ :{CAP}\r\n").unwrap();
-    write!(&mut self.out, "NICK {}\r\n", self.config.nick).unwrap();
-    write!(&mut self.out, "PASS {}\r\n", self.config.pass).unwrap();
+    write!(&mut self.scratch, "CAP REQ :{CAP}\r\n").unwrap();
+    write!(&mut self.scratch, "NICK {}\r\n", self.config.nick).unwrap();
+    write!(&mut self.scratch, "PASS {}\r\n", self.config.pass).unwrap();
 
-    self.writer.raw().write_all(self.out.as_bytes()).await?;
-    self.out.clear();
+    self.writer.write_all(self.scratch.as_bytes()).await?;
+    self.writer.flush().await?;
+    self.scratch.clear();
 
-    tracing::debug!("waiting for first message");
-    let message = self
-      .reader
-      .message()
-      .timeout(Duration::from_secs(5))
-      .await??;
-    tracing::debug!(?message, "received first message");
+    tracing::debug!("waiting for CAP * ACK");
+    let message = self.message().timeout(Duration::from_secs(5)).await??;
+    tracing::debug!(?message, "received message");
+
+    match message.command() {
+      twitch::Command::Capability => {
+        if message.params().is_some_and(|v| v.starts_with("* ACK")) {
+          tracing::debug!("received CAP * ACK")
+        } else {
+          return Err(ConnectionError::InvalidAuth);
+        }
+      }
+      _ => {
+        tracing::debug!("unexpected message");
+        return Err(ConnectionError::InvalidFirstMessage(message));
+      }
+    }
+
+    tracing::debug!("waiting for NOTICE 001");
+    let message = self.message().timeout(Duration::from_secs(5)).await??;
+    tracing::debug!(?message, "received message");
 
     match message.command() {
       twitch::Command::RplWelcome => {
@@ -162,65 +172,14 @@ impl Client {
   }
 }
 
-/*
-
- reader: LinesStream<BufReader<ReadHalf<conn::Stream>>>,
- writer: WriteHalf<conn::Stream>,
-*/
-
-fn split(stream: conn::Stream) -> (Reader, Writer) {
+fn split(stream: conn::Stream) -> (ReadStream, WriteStream) {
   let (reader, writer) = tokio::io::split(stream);
 
   (
-    Reader(LinesStream::new(BufReader::new(reader).lines()).fuse()),
-    Writer(writer),
+    LinesStream::new(BufReader::new(reader).lines()).fuse(),
+    writer,
   )
 }
-
-pub struct Writer(WriteHalf<conn::Stream>);
-
-impl Writer {
-  fn raw(&mut self) -> &mut WriteHalf<conn::Stream> {
-    &mut self.0
-  }
-}
-
-pub struct Reader(Fuse<LinesStream<BufReader<ReadHalf<conn::Stream>>>>);
-
-impl Reader {
-  pub async fn message(&mut self) -> Result<twitch::Message, ReadError> {
-    if let Some(message) = self.0.next().await {
-      Ok(twitch::parse(message?).map_err(ReadError::Parse)?)
-    } else {
-      Err(ReadError::StreamClosed)
-    }
-  }
-}
-
-#[derive(Debug)]
-pub enum ReadError {
-  Io(io::Error),
-  Parse(String),
-  StreamClosed,
-}
-
-impl From<io::Error> for ReadError {
-  fn from(value: io::Error) -> Self {
-    Self::Io(value)
-  }
-}
-
-impl Display for ReadError {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    match self {
-      ReadError::Io(e) => write!(f, "failed to read message: {e}"),
-      ReadError::Parse(s) => write!(f, "failed to read message: invalid message `{s}`"),
-      ReadError::StreamClosed => write!(f, "failed to read message: stream closed"),
-    }
-  }
-}
-
-impl std::error::Error for ReadError {}
 
 #[derive(Debug)]
 pub enum ConnectionError {
