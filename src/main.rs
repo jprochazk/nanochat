@@ -2,11 +2,6 @@ use std::process::ExitCode;
 use std::time::Duration;
 use tokio::{select, signal};
 
-use mimalloc::MiMalloc;
-
-#[global_allocator]
-static GLOBAL: MiMalloc = MiMalloc;
-
 type Result<T, E = Box<dyn std::error::Error + Send + Sync + 'static>> =
   ::core::result::Result<T, E>;
 
