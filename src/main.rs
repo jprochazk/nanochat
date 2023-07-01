@@ -273,9 +273,20 @@ impl AppWindow {
 fn supports_gl_backend() -> bool {
   use std::sync::OnceLock;
 
-  static VALUE: OnceLock<bool> = OnceLock::new();
+  static GL_DISABLED: OnceLock<bool> = OnceLock::new();
 
-  let value = *VALUE.get_or_init(|| {
+  let value = *GL_DISABLED.get_or_init(|| {
+    // software GL works fine
+    if let Ok(software_gl) = std::env::var("LIBGL_ALWAYS_SOFTWARE") {
+      match software_gl.to_lowercase().as_str() {
+        "1" | "t" | "true" => return false,
+        _ => {}
+      }
+    }
+
+    // WSL2 for some reason doesn't work.
+    // if we detect that we're in WSL, we disable the GL backend
+    // the detection relies on https://github.com/microsoft/WSL/issues/423#issuecomment-221627364
     let v = std::fs::read_to_string("/proc/version")
       .expect("failed to read `/proc/version`")
       .contains("microsoft");
