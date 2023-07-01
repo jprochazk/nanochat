@@ -114,15 +114,13 @@ impl AppWindow {
 
     let ctx = egui::Context::default();
     let state = egui_winit::State::new(&event_loop);
-
     let mut config = egui_wgpu::WgpuConfiguration {
       supported_backends: wgpu::Backends::PRIMARY,
       ..Default::default()
     };
-    if supports_gl_backend() {
+    if SUPPORTS_GL_BACKEND {
       config.supported_backends |= wgpu::Backends::GL;
     }
-
     let painter = egui_wgpu::winit::Painter::new(config, 1, None, false);
 
     Ok(Self {
@@ -269,43 +267,8 @@ impl AppWindow {
   }
 }
 
-#[cfg(target_os = "linux")]
-fn supports_gl_backend() -> bool {
-  use std::sync::OnceLock;
-
-  static GL_DISABLED: OnceLock<bool> = OnceLock::new();
-
-  let value = *GL_DISABLED.get_or_init(|| {
-    // software GL works fine
-    if let Ok(software_gl) = std::env::var("LIBGL_ALWAYS_SOFTWARE") {
-      match software_gl.to_lowercase().as_str() {
-        "1" | "t" | "true" => return false,
-        _ => {}
-      }
-    }
-
-    // WSL2 for some reason doesn't work.
-    // if we detect that we're in WSL, we disable the GL backend
-    // the detection relies on https://github.com/microsoft/WSL/issues/423#issuecomment-221627364
-    let v = std::fs::read_to_string("/proc/version")
-      .expect("failed to read `/proc/version`")
-      .contains("microsoft");
-
-    if v {
-      tracing::info!("WSL detected - GL backend will be unavailable")
-    }
-
-    v
-  });
-
-  !value
-}
-
-#[cfg(not(target_os = "linux"))]
-#[inline(always)]
-fn supports_gl_backend() -> bool {
-  true
-}
+// this is probably a bug in egui-wgpu
+const SUPPORTS_GL_BACKEND: bool = cfg!(not(target_os = "linux"));
 
 #[cfg(not(target_os = "android"))]
 pub fn main() -> ExitCode {
