@@ -106,6 +106,7 @@ struct AppWindow {
 }
 
 impl AppWindow {
+  #[tracing::instrument(skip(event_loop, repaint_signal))]
   fn new(event_loop: &EventLoop<UserEvent>, repaint_signal: RepaintSignal) -> Result<Self> {
     static ID: AtomicU64 = AtomicU64::new(0);
 
@@ -113,14 +114,16 @@ impl AppWindow {
 
     let ctx = egui::Context::default();
     let state = egui_winit::State::new(&event_loop);
-    let painter = egui_wgpu::winit::Painter::new(
-      egui_wgpu::WgpuConfiguration {
-        ..Default::default()
-      },
-      1,
-      None,
-      false,
-    );
+
+    let mut config = egui_wgpu::WgpuConfiguration {
+      supported_backends: wgpu::Backends::PRIMARY,
+      ..Default::default()
+    };
+    if supports_gl_backend() {
+      config.supported_backends |= wgpu::Backends::GL;
+    }
+
+    let painter = egui_wgpu::winit::Painter::new(config, 1, None, false);
 
     Ok(Self {
       id,
@@ -264,6 +267,33 @@ impl AppWindow {
 
     window
   }
+}
+
+#[cfg(target_os = "linux")]
+fn supports_gl_backend() -> bool {
+  use std::sync::OnceLock;
+
+  static VALUE: OnceLock<bool> = OnceLock::new();
+
+  let value = *VALUE.get_or_init(|| {
+    let v = std::fs::read_to_string("/proc/version")
+      .expect("failed to read `/proc/version`")
+      .contains("microsoft");
+
+    if v {
+      tracing::info!("WSL detected - GL backend will be unavailable")
+    }
+
+    v
+  });
+
+  !value
+}
+
+#[cfg(not(target_os = "linux"))]
+#[inline(always)]
+fn supports_gl_backend() -> bool {
+  true
 }
 
 #[cfg(not(target_os = "android"))]
