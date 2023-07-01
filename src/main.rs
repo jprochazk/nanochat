@@ -119,8 +119,11 @@ impl AppWindow {
 
     let ctx = egui::Context::default();
     let state = egui_winit::State::new(&event_loop);
-    let painter =
-      egui_wgpu::winit::Painter::new(egui_wgpu::WgpuConfiguration::default(), 1, None, true);
+    let surface_config = egui_wgpu::WgpuConfiguration {
+      present_mode: wgpu::PresentMode::Fifo,
+      ..Default::default()
+    };
+    let painter = egui_wgpu::winit::Painter::new(surface_config, 1, None, true);
 
     Ok(Self {
       id,
