@@ -1,22 +1,16 @@
 use std::collections::HashMap;
 use std::process::ExitCode;
-use std::sync::atomic::AtomicU64;
-use std::sync::atomic::Ordering;
-use std::sync::Arc;
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 
-use winit::event::Event;
-use winit::event::WindowEvent;
-use winit::event_loop::ControlFlow;
-use winit::event_loop::EventLoop;
-use winit::event_loop::EventLoopBuilder;
-use winit::event_loop::EventLoopProxy;
-use winit::event_loop::EventLoopWindowTarget;
+use winit::event::{Event, WindowEvent};
+use winit::event_loop::{
+  ControlFlow, EventLoop, EventLoopBuilder, EventLoopProxy, EventLoopWindowTarget,
+};
 use winit::window::Window;
 
 use anyhow::Result;
-use winit::window::WindowBuilder;
-use winit::window::WindowId;
+use winit::window::{WindowBuilder, WindowId};
 
 enum UserEvent {
   RequestRedraw(WindowId),
@@ -119,11 +113,14 @@ impl AppWindow {
 
     let ctx = egui::Context::default();
     let state = egui_winit::State::new(&event_loop);
-    let surface_config = egui_wgpu::WgpuConfiguration {
-      present_mode: wgpu::PresentMode::Fifo,
-      ..Default::default()
-    };
-    let painter = egui_wgpu::winit::Painter::new(surface_config, 1, None, true);
+    let painter = egui_wgpu::winit::Painter::new(
+      egui_wgpu::WgpuConfiguration {
+        ..Default::default()
+      },
+      1,
+      None,
+      false,
+    );
 
     Ok(Self {
       id,
