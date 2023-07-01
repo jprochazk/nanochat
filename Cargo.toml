@@ -8,6 +8,18 @@ description = "Twitch chat client"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[features]
+gui = [
+  "dep:egui",
+  "dep:egui-wgpu",
+  "dep:egui-winit",
+  "dep:pollster",
+  "dep:wgpu",
+  "dep:winit",
+]
+
+default = ["gui"]
+
 [dependencies]
 beef = "0.5.2"
 futures-util = "0.3.28"
@@ -26,7 +38,15 @@ tokio-rustls = "0.24.1"
 tokio-stream = { version = "0.1.14", features = ["io-util"] }
 tracing = "0.1.37"
 tracing-subscriber = "0.3.17"
-uwuify = { version = "0.2.2", default-features = false }
+
+egui = { version = "0.22.0", optional = true }
+egui-wgpu = { version = "0.22.0", optional = true, features = ["winit"] }
+egui-winit = { version = "0.22.0", optional = true }
+pollster = { version = "0.3.0", optional = true }
+wgpu = { version = "0.16.1", optional = true }
+winit = { version = "0.28.6", optional = true }
+anyhow = "1.0.71"
+egui_demo_lib = "0.22.0"
 
 [dependencies.twitch]
 git = "https://github.com/jprochazk/twitch-rs.git"
